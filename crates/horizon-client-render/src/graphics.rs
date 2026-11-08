@@ -1442,13 +1442,31 @@ mod tests {
     }
 
     #[test]
-    fn automatic_workers_leave_a_core_as_vanilla_does() {
+    fn automatic_workers_reserve_render_headroom_and_copper_reserves_more_on_android() {
         let g = Graphics::default();
         assert_eq!(g.workers, 0);
         let cores = horizon_threads::worker_count();
-        assert_eq!(g.worker_threads(), cores.saturating_sub(1).max(1));
-        // A manual count is the player's own choice, kept as asked.
-        let manual = Graphics { workers: 3, ..g };
+        let spare = if cfg!(target_os = "android") { 2 } else { 1 };
+        let automatic = cores.saturating_sub(spare).max(1);
+        assert_eq!(g.worker_threads(), automatic);
+
+        let copper = Graphics {
+            copper_mobile: true,
+            ..Graphics::default()
+        };
+        let copper_automatic = if cfg!(target_os = "android") {
+            automatic.saturating_sub(1).max(1)
+        } else {
+            automatic
+        };
+        assert_eq!(copper.worker_threads(), copper_automatic);
+
+        // A manual count remains the player's choice, even with Copper enabled.
+        let manual = Graphics {
+            workers: 3,
+            copper_mobile: true,
+            ..Graphics::default()
+        };
         assert_eq!(manual.worker_threads(), 3);
     }
 
