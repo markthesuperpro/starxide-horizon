@@ -10,6 +10,6 @@ pub fn configure_copper_mobile(enabled: bool) {
 }
 
 /// Whether Copper Mobile is enabled for this game process.
-pub fn copper_mobile() -> bool {
+pub fn copper() -> bool {
     COPPER_MOBILE.load(Ordering::Relaxed)
 }

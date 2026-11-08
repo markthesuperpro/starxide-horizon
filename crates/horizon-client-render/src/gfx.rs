@@ -3968,7 +3968,7 @@ impl Renderer {
             // Copper Mobile keeps the tested Android occlusion path disabled, even
             // when a diagnostic override would otherwise request it.
             .filter(|_| {
-                !(cfg!(target_os = "android") && crate::android_runtime::copper_mobile())
+                !(cfg!(target_os = "android") && crate::android_runtime::copper())
             })
             .map(|depth_test| match cull_env.as_deref() {
                 Ok("shader") => cull::DepthTest::InShader,

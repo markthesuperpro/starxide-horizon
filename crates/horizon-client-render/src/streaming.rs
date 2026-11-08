@@ -28,14 +28,6 @@ pub const IDLE_RELEASE: std::time::Duration = std::time::Duration::from_secs(5);
 /// Copper Mobile's maximum number of chunk columns generating at once.
 const COPPER_INFLIGHT: usize = 6;
 
-fn copper_generation_capacity(capacity: usize, enabled: bool) -> usize {
-    if enabled {
-        capacity.min(COPPER_INFLIGHT)
-    } else {
-        capacity
-    }
-}
-
 /// Worker CPU time and job counts by kind, for benchmarks
 /// (`examples/gen_light_bench.rs`). Off unless enabled: a relaxed load per
 /// job then.
@@ -653,10 +645,14 @@ impl GenerationScan {
         input: GenerationInputs<'_>,
         capacity: usize,
     ) -> Option<Vec<(i64, i32, i32)>> {
-        let capacity = copper_generation_capacity(
-            capacity,
-            cfg!(target_os = "android") && crate::android_runtime::copper_mobile(),
-        );
+        // Copper caps in-flight generation on phones: close columns finish
+        // before far ones start, so the chunks the player sees land sooner
+        // and half-built columns churn less memory and CPU.
+        let capacity = if crate::android_runtime::copper() {
+            capacity.min(COPPER_INFLIGHT)
+        } else {
+            capacity
+        };
         // Generation (load or proto), closest first, bounded in flight.
         let (margin, reach) = Ranges::margins(input.decorates);
         if input.remote
@@ -4049,15 +4045,3 @@ mod cover_tests {
     }
 }
 
-#[cfg(test)]
-mod copper_mobile_tests {
-    use super::{copper_generation_capacity, COPPER_INFLIGHT};
-
-    #[test]
-    fn caps_generation_capacity_only_when_enabled() {
-        assert_eq!(copper_generation_capacity(18, true), COPPER_INFLIGHT);
-        assert_eq!(copper_generation_capacity(3, true), 3);
-        assert_eq!(copper_generation_capacity(18, false), 18);
-        assert_eq!(copper_generation_capacity(0, true), 0);
-    }
-}
