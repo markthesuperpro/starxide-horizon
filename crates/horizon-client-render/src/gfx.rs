@@ -3965,6 +3965,11 @@ impl Renderer {
         let adapter_info = adapter.get_info();
         let cull = cull::Cull::supported(&adapter, &device)
             .filter(|_| gpu_culling_requested(&adapter_info, cull_env.as_deref().ok()))
+            // Copper Mobile keeps the tested Android occlusion path disabled, even
+            // when a diagnostic override would otherwise request it.
+            .filter(|_| {
+                !(cfg!(target_os = "android") && crate::android_runtime::copper_mobile())
+            })
             .map(|depth_test| match cull_env.as_deref() {
                 Ok("shader") => cull::DepthTest::InShader,
                 _ => depth_test,

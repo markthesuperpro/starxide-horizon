@@ -588,8 +588,11 @@ pub struct Graphics {
     pub dither_cutout_mips: bool,
     pub present_mode: PresentMode,
     pub pacing: Pacing,
-    /// Chunk worker threads; 0 uses every core but one. Applies at the next start.
+    /// Chunk worker threads; 0 uses the automatic count. Applies at the next start.
     pub workers: u32,
+    /// Copper's Android scheduling mode: fewer in-flight columns and one more core left free.
+    /// Off by default; both policies apply at next start.
+    pub copper_mobile: bool,
     pub overlay: Overlay,
     /// World resolution as a percentage of the window's (50..=200).
     pub resolution_scale: u32,
@@ -717,6 +720,7 @@ impl Default for Graphics {
             present_mode: PresentMode::Auto,
             pacing: Pacing::Efficient,
             workers: 0,
+            copper_mobile: false,
             overlay: Overlay::Off,
             resolution_scale: 100,
             fxaa: false,
@@ -834,6 +838,7 @@ impl Graphics {
                     }
                 }
                 "workers" => g.workers = number(g.workers).min(64),
+                "copperMobile" => g.copper_mobile = flag(g.copper_mobile),
                 "resolutionScale" => g.resolution_scale = number(g.resolution_scale).clamp(25, 200),
                 "fxaa" => g.fxaa = flag(g.fxaa),
                 "taa" => g.taa = flag(g.taa),
@@ -887,7 +892,7 @@ impl Graphics {
     }
     pub fn serialize(&self) -> String {
         let mut text = format!(
-            "preset:{}\nlodDistance:{}\nfarDetail:{}\ncaveCulling:{}\nentityCulling:{}\nleafCulling:{}\nblockEntityCacheShulkerBoxes:{}\nblockEntityCacheSigns:{}\nblockEntityCacheDecoratedPots:{}\nblockEntityCacheBells:{}\nblockEntityCacheChests:{}\nblockEntityCacheBanners:{}\nblockEntityCacheCopperGolemStatues:{}\nchunkUpdates:{}\nuploadBudgetKiB:{}\ntextureBudgetMiB:{}\nsky:{}\nfog:{}\nweather:{}\nanimatedTextures:{}\nditherCutoutMips:{}\npresentMode:{}\nframePacing:{}\nworkers:{}\noverlay:{}\nresolutionScale:{}\nfxaa:{}\ntaa:{}\nupscaling:{}\nscreenshotQuality:{}\nframeGeneration:{}\nhdr:{}\nhdrPaperWhite:{}\nhdrPeak:{}\nhdrBlackLevel:{}\nhdrUiBrightness:{}\nhdrKey:{}\nbatteryMode:{}\nshadowCache:{}\ngraphicsApi:{}\npickedShaderPack:{}\nshadersProfile:{}\nbatchTranslucent:{}\n",
+            "preset:{}\nlodDistance:{}\nfarDetail:{}\ncaveCulling:{}\nentityCulling:{}\nleafCulling:{}\nblockEntityCacheShulkerBoxes:{}\nblockEntityCacheSigns:{}\nblockEntityCacheDecoratedPots:{}\nblockEntityCacheBells:{}\nblockEntityCacheChests:{}\nblockEntityCacheBanners:{}\nblockEntityCacheCopperGolemStatues:{}\nchunkUpdates:{}\nuploadBudgetKiB:{}\ntextureBudgetMiB:{}\nsky:{}\nfog:{}\nweather:{}\nanimatedTextures:{}\nditherCutoutMips:{}\npresentMode:{}\nframePacing:{}\nworkers:{}\ncopperMobile:{}\noverlay:{}\nresolutionScale:{}\nfxaa:{}\ntaa:{}\nupscaling:{}\nscreenshotQuality:{}\nframeGeneration:{}\nhdr:{}\nhdrPaperWhite:{}\nhdrPeak:{}\nhdrBlackLevel:{}\nhdrUiBrightness:{}\nhdrKey:{}\nbatteryMode:{}\nshadowCache:{}\ngraphicsApi:{}\npickedShaderPack:{}\nshadersProfile:{}\nbatchTranslucent:{}\n",
             self.preset.name(),
             self.lod_distance,
             self.far_detail.name(),
@@ -915,6 +920,7 @@ impl Graphics {
                 Pacing::Precise => "precise",
             },
             self.workers,
+            bool_text(self.copper_mobile),
             match self.overlay {
                 Overlay::Off => "off",
                 Overlay::Fps => "fps",
@@ -996,6 +1002,13 @@ impl Graphics {
         // a hot phone slows every core down.
         let spare = if cfg!(target_os = "android") { 2 } else { 1 };
         let auto = horizon_threads::worker_count().saturating_sub(spare).max(1);
+        // Copper reserves one additional core for the render thread and GPU driver.
+        // This only adjusts Auto; a manually selected worker count remains the player's choice.
+        let auto = if cfg!(target_os = "android") && self.copper_mobile {
+            auto.saturating_sub(1).max(1)
+        } else {
+            auto
+        };
         if self.battery { auto.div_ceil(2) } else { auto }
     }
     /// The frame cap battery mode adds: 60 in a world, 30 in menus without a
@@ -1168,6 +1181,7 @@ mod tests {
             present_mode: PresentMode::Mailbox,
             pacing: Pacing::Precise,
             workers: 6,
+            copper_mobile: true,
             overlay: Overlay::Graph,
             resolution_scale: 75,
             fxaa: true,
@@ -1211,6 +1225,8 @@ mod tests {
                 .servers
                 .is_empty()
         );
+        assert!(Graphics::parse("copperMobile:true\n").copper_mobile);
+        assert!(!Graphics::default().copper_mobile);
         assert_eq!(Graphics::parse(""), Graphics::default());
         // Translucent Batching is on, in files from before it too; only false turns it off,
         // and only under its key: the old one held the false every save wrote while it was
@@ -1426,13 +1442,31 @@ mod tests {
     }
 
     #[test]
-    fn automatic_workers_leave_a_core_as_vanilla_does() {
+    fn automatic_workers_reserve_render_headroom_and_copper_reserves_more_on_android() {
         let g = Graphics::default();
         assert_eq!(g.workers, 0);
         let cores = horizon_threads::worker_count();
-        assert_eq!(g.worker_threads(), cores.saturating_sub(1).max(1));
-        // A manual count is the player's own choice, kept as asked.
-        let manual = Graphics { workers: 3, ..g };
+        let spare = if cfg!(target_os = "android") { 2 } else { 1 };
+        let automatic = cores.saturating_sub(spare).max(1);
+        assert_eq!(g.worker_threads(), automatic);
+
+        let copper = Graphics {
+            copper_mobile: true,
+            ..Graphics::default()
+        };
+        let copper_automatic = if cfg!(target_os = "android") {
+            automatic.saturating_sub(1).max(1)
+        } else {
+            automatic
+        };
+        assert_eq!(copper.worker_threads(), copper_automatic);
+
+        // A manual count remains the player's choice, even with Copper enabled.
+        let manual = Graphics {
+            workers: 3,
+            copper_mobile: true,
+            ..Graphics::default()
+        };
         assert_eq!(manual.worker_threads(), 3);
     }
 

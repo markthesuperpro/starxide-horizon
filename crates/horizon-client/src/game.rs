@@ -20157,6 +20157,12 @@ fn load_resources(
     progress: &Progress,
     publish: &mut dyn FnMut(UiResources, &std::path::Path),
 ) -> Result<Loaded> {
+    // Copper Mobile affects both the shared worker pool and the renderer's scheduling.
+    // Set the process-wide switch before either is initialized.
+    #[cfg(target_os = "android")]
+    horizon_client_render::android_runtime::configure_copper_mobile(
+        !headless && settings.horizon.copper_mobile,
+    );
     let threads = settings.horizon.worker_threads();
     // One pool of workers for every level's streaming, the client's and the
     // server thread's (horizon_threads::jobs), sized before any world opens.

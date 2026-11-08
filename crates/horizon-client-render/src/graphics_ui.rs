@@ -84,6 +84,7 @@ pub enum H {
     PresentMode,
     Pacing,
     Workers,
+    CopperMobile,
     Overlay,
     ResolutionScale,
     Antialiasing,
@@ -533,6 +534,22 @@ pub fn rows() -> Vec<(Page, Vec<(&'static str, Vec<Setting>)>)> {
             ],
         ),
     ];
+    // Copper Mobile is a phone-only scheduling policy.
+    if cfg!(target_os = "android") {
+        let (_, groups) = pages
+            .iter_mut()
+            .find(|entry| entry.0 == Page::Performance)
+            .expect("the Performance page");
+        let (_, rows) = groups
+            .iter_mut()
+            .find(|entry| entry.0 == "Chunk loading")
+            .expect("the Chunk loading group");
+        rows.push(h(
+            H::CopperMobile,
+            None,
+            "Caps in-flight chunk generation at six columns and leaves one more automatic CPU worker free for rendering. May slow terrain loading; next start.",
+        ));
+    }
     // Only Windows and Linux have more than one graphics API, and translucent batching
     // (Metal draws flat).
     if cfg!(target_os = "macos") {
@@ -744,6 +761,7 @@ impl H {
                 ),
                 n => labelled("Worker Threads", n),
             },
+            H::CopperMobile => labelled("Copper Mobile", on_off(g.copper_mobile)),
             H::ResolutionScale => labelled("Resolution Scale", format!("{}%", g.resolution_scale)),
             H::Antialiasing => labelled(
                 "Anti-aliasing",
@@ -902,6 +920,7 @@ impl H {
             }
             H::Hdr => g.hdr = !g.hdr,
             H::BatteryMode => g.battery = !g.battery,
+            H::CopperMobile => g.copper_mobile = !g.copper_mobile,
             H::ShadowCache => g.shadow_cache = !g.shadow_cache,
             H::GraphicsApi => g.api = step(GraphicsApi::choices(), g.api, back),
             H::TranslucentBatching => g.translucent_batching = !g.translucent_batching,
@@ -993,6 +1012,7 @@ impl Item {
             Item::Horizon(H::DitherCutoutMips) => g.dither_cutout_mips,
             Item::Horizon(H::Hdr) => g.hdr,
             Item::Horizon(H::BatteryMode) => g.battery,
+            Item::Horizon(H::CopperMobile) => g.copper_mobile,
             Item::Horizon(H::ShadowCache) => g.shadow_cache,
             Item::Horizon(H::TranslucentBatching) => g.translucent_batching,
             Item::Vanilla(Opt::ViewBobbing) => s.view_bobbing,
@@ -1056,6 +1076,7 @@ impl Item {
                     | H::Pacing
                     | H::PresentMode
                     | H::Workers
+                    | H::CopperMobile
                     | H::FrameGeneration
                     | H::BatteryMode
                     | H::ShadowCache
@@ -3008,6 +3029,31 @@ mod tests {
                 assert_eq!(s.horizon.translucent_batching, on, "{preset:?}");
             }
         }
+    }
+
+    #[test]
+    fn copper_mobile_is_an_android_only_switch_and_keeps_the_preset() {
+        let item = Item::Horizon(H::CopperMobile);
+        let page = items()
+            .into_iter()
+            .find(|(_, candidate)| *candidate == item)
+            .map(|(page, _)| page);
+        assert_eq!(
+            page,
+            if cfg!(target_os = "android") {
+                Some(Page::Performance)
+            } else {
+                None
+            }
+        );
+
+        let mut settings = Settings::default();
+        settings.horizon.preset = Preset::Balanced;
+        assert_eq!(item.switch(&settings), Some(false));
+        item.cycle(&mut settings, false, [854, 480]);
+        assert!(settings.horizon.copper_mobile);
+        assert_eq!(item.label(&settings).plain(), "Copper Mobile: On");
+        assert_eq!(settings.horizon.preset, Preset::Balanced);
     }
 
     #[test]
