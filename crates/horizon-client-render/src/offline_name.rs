@@ -161,6 +161,19 @@ mod tests {
     }
 
     #[test]
+    fn chosen_name_takes_precedence_with_or_without_an_account() {
+        let d = dir("chosen-offline-precedence");
+        choose(&d, "Offline_2").unwrap();
+        assert_eq!(for_worlds_with_account(&d, None), "Offline_2");
+        assert_eq!(for_worlds_with_account(&d, Some("MicrosoftName")), "Offline_2");
+
+        let other = dir("account-fallback");
+        assert_eq!(for_worlds_with_account(&other, Some("MicrosoftName")), "MicrosoftName");
+        let _ = fs::remove_dir_all(&d);
+        let _ = fs::remove_dir_all(&other);
+    }
+
+    #[test]
     fn generated_names_are_valid_and_never_the_hosts_profile() {
         for seed in [0, 7, 99_999, 100_000, u64::MAX] {
             let name = generate(seed);
