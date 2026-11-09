@@ -53,10 +53,16 @@ pub fn chosen(dir: &Path) -> Option<String> {
 /// The name single player's worlds open with: the chosen one, else the signed-in account's, else
 /// the kept offline name.
 pub fn for_worlds(dir: &Path) -> String {
-    match crate::auth::current() {
-        Some(account) => chosen(dir).unwrap_or_else(|| account.name.clone()),
-        None => load_or_create(dir),
+    for_worlds_with_account(dir, crate::auth::current().as_deref().map(|account| account.name.as_str()))
+}
+
+/// Resolve the world identity with a chosen offline name taking precedence over account state.
+/// Kept separate so the precedence can be tested without mutating the process-wide auth session.
+fn for_worlds_with_account(dir: &Path, account_name: Option<&str>) -> String {
+    if let Some(name) = chosen(dir) {
+        return name;
     }
+    account_name.map(str::to_owned).unwrap_or_else(|| load_or_create(dir))
 }
 
 /// `key`'s value in `dir`'s horizon-player.txt.
