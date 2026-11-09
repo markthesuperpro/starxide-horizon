@@ -168,13 +168,65 @@ pub(crate) fn retrying<T>(mut attempt: impl FnMut() -> Result<T, Failure>) -> Re
     attempt().map_err(|(Failure::Again(e) | Failure::Final(e))| e)
 }
 
+/// HTTP statuses worth retrying for official game-file downloads.
+/// 429 means the server is rate-limiting us; 5xx means it is temporarily unavailable.
+fn retryable_status(code: u16) -> bool {
+    code == 429 || code >= 500
+}
+
+#[cfg(test)]
+mod retry_status_tests {
+    use super::retryable_status;
+
+    #[test]
+    fn retries_rate_limits_and_server_errors_but_not_permanent_client_errors() {
+        assert!(retryable_status(429));
+        assert!(retryable_status(500));
+        assert!(retryable_status(503));
+        assert!(!retryable_status(400));
+        assert!(!retryable_status(401));
+        assert!(!retryable_status(404));
+    }
+}
+
+#[cfg(test)]
+mod retrying_tests {
+    use super::{retrying, Failure};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn retries_a_temporary_failure_then_returns_the_successful_result() {
+        let attempts = AtomicUsize::new(0);
+        let result = retrying(|| {
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(Failure::Again("temporary HTTP 429".into()))
+            } else {
+                Ok("downloaded")
+            }
+        });
+        assert_eq!(result.unwrap(), "downloaded");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn does_not_retry_a_final_failure() {
+        let attempts = AtomicUsize::new(0);
+        let result: Result<(), String> = retrying(|| {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(Failure::Final("HTTP 404".into()))
+        });
+        assert_eq!(result.unwrap_err(), "HTTP 404");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+}
+
 /// `url`'s body, which must hash to `sha1`; the error names the file, never more of the URL.
 fn fetch_checked(url: &str, sha1: &str, name: &str) -> Result<Vec<u8>, String> {
     let body = retrying(|| {
         let response = agent().get(url).call().map_err(|e| match e {
             ureq::Error::Status(code, _) => {
                 let e = format!("Mojang's server refused {name} ({code}).");
-                if code >= 500 {
+                if retryable_status(code) {
                     Failure::Again(e)
                 } else {
                     Failure::Final(e)
