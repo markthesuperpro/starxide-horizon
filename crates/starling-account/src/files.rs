@@ -189,6 +189,37 @@ mod retry_status_tests {
     }
 }
 
+#[cfg(test)]
+mod retrying_tests {
+    use super::{retrying, Failure};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn retries_a_temporary_failure_then_returns_the_successful_result() {
+        let attempts = AtomicUsize::new(0);
+        let result = retrying(|| {
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(Failure::Again("temporary HTTP 429".into()))
+            } else {
+                Ok("downloaded")
+            }
+        });
+        assert_eq!(result.unwrap(), "downloaded");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn does_not_retry_a_final_failure() {
+        let attempts = AtomicUsize::new(0);
+        let result: Result<(), String> = retrying(|| {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(Failure::Final("HTTP 404".into()))
+        });
+        assert_eq!(result.unwrap_err(), "HTTP 404");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+}
+
 /// `url`'s body, which must hash to `sha1`; the error names the file, never more of the URL.
 fn fetch_checked(url: &str, sha1: &str, name: &str) -> Result<Vec<u8>, String> {
     let body = retrying(|| {
