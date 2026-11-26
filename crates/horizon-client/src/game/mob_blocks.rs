@@ -344,31 +344,42 @@ impl Game<'_> {
         let flip = Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0));
         let at = |x: f32, y: f32, z: f32| Mat4::from_translation(Vec3::new(x, y, z));
         let spin = |degrees: f32| Mat4::from_rotation_y(degrees.to_radians());
-        let transforms = if species == Species::SnowGolem {
-            vec![
-                head * at(0.0, -0.34375, 0.0)
-                    * spin(180.0)
-                    * Mat4::from_scale(Vec3::new(0.625, -0.625, -0.625))
-                    * unit,
-            ]
-        } else {
-            let base = render::base_transform(mob, alpha, camera);
-            vec![
-                base * at(0.2, -0.35, 0.5) * spin(-48.0) * flip * unit,
-                base * at(0.2, -0.35, 0.5)
-                    * spin(42.0)
-                    * at(0.1, 0.0, -0.6)
-                    * spin(-48.0)
-                    * flip
-                    * unit,
-                head * at(0.0, -0.7, -0.2) * spin(-78.0) * flip * unit,
-            ]
-        };
         // The hurt tint reaches these blocks as it does the body.
         let overlay = horizon_client::overlay::living(0.0, mob.hurt_time > 0 || mob.death_time > 0);
+        if species == Species::SnowGolem {
+            let t = head
+                * at(0.0, -0.34375, 0.0)
+                * spin(180.0)
+                * Mat4::from_scale(Vec3::new(0.625, -0.625, -0.625))
+                * unit;
+            let start = out.len();
+            self.block_model_vertices(state, 0, t, light, true, out);
+            for vertex in &mut out[start..] {
+                vertex.layer = overlay;
+            }
+            return;
+        }
+
+        // Keep the three transforms on the stack: this runs for every visible
+        // mooshroom on every frame, so a temporary Vec is unnecessary.
+        let base = render::base_transform(mob, alpha, camera);
+        let transforms = [
+            base * at(0.2, -0.35, 0.5) * spin(-48.0) * flip * unit,
+            base * at(0.2, -0.35, 0.5)
+                * spin(42.0)
+                * at(0.1, 0.0, -0.6)
+                * spin(-48.0)
+                * flip
+                * unit,
+            head * at(0.0, -0.7, -0.2) * spin(-78.0) * flip * unit,
+        ];
         for t in transforms {
             let start = out.len();
             self.block_model_vertices(state, 0, t, light, true, out);
+            // Mushroom blocks are crossed block models. Draw only the faces
+            // visible from this view; otherwise their coplanar front/back
+            // quads overlap and dither as the camera moves around the mob.
+            cull_back_quads(out, start);
             for vertex in &mut out[start..] {
                 vertex.layer = overlay;
             }
@@ -720,6 +731,29 @@ mod tests {
         // Dead wearer, living vehicle: the vehicle's.
         wearer.health = 0.0;
         assert_eq!(worn_head_animation(&wearer, Some(2), &mobs, 0.5), 3.5);
+    }
+
+    #[test]
+    fn crossed_mushroom_quads_keep_only_the_camera_facing_side() {
+        fn append_quad(out: &mut Vec<Vertex>, z: f32, normal_z: i8) {
+            for (x, y) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+                out.push(Vertex {
+                    pos: [x, y, z],
+                    uv: [0.0, 0.0],
+                    layer: 0,
+                    color: 0xFFFF_FFFF,
+                    light: 0,
+                    normal: [0, 0, normal_z, -127],
+                    glint_uv: [0.0, 0.0],
+                });
+            }
+        }
+        let mut out = Vec::with_capacity(8);
+        append_quad(&mut out, -1.0, 1);
+        append_quad(&mut out, -1.0, -1);
+        cull_back_quads(&mut out, 0);
+        assert_eq!(out.len(), 4, "the back-facing crossed plane is discarded");
+        assert!(out.iter().all(|v| v.pos[2] == -1.0 && v.normal[2] == 1));
     }
 
     #[test]
