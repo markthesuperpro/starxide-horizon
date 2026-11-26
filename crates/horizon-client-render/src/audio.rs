@@ -878,20 +878,25 @@ impl Audio {
             );
         }
         let mixer = Arc::new(Mutex::new(Mixer::default()));
-        let opened = if output {
-            Self::open_named(mixer.clone(), target_device)
-        } else {
-            Err("no output on a dedicated server".into())
-        };
-        let (stream, live) = match opened {
-            Ok(v) => (Some(v), true),
-            Err(e) => {
-                if output {
-                    log::warn!("Horizon: no sound: {e}");
+        #[cfg(feature = "audio")]
+        let (stream, live) = {
+            let opened = if output {
+                Self::open_named(mixer.clone(), target_device)
+            } else {
+                Err("no output on a dedicated server".into())
+            };
+            match opened {
+                Ok(v) => (Some(v), true),
+                Err(e) => {
+                    if output {
+                        log::warn!("Horizon: no sound: {e}");
+                    }
+                    (None, false)
                 }
-                (None, false)
             }
         };
+        #[cfg(not(feature = "audio"))]
+        let (stream, live): (Option<Stream>, bool) = (None, false);
         let mut engine = SoundEngine::new(registry);
         engine.loaded = live;
         #[cfg(feature = "audio")]
@@ -939,10 +944,6 @@ impl Audio {
             #[cfg(feature = "audio")]
             device_ticks: 0,
         }
-    }
-    #[cfg(not(feature = "audio"))]
-    fn open_named(_: Arc<Mutex<Mixer>>, _: &str) -> Result<Stream> {
-        Err("this build has no sound output (built without the `audio` feature)".into())
     }
     #[cfg(feature = "audio")]
     fn open_named(mixer: Arc<Mutex<Mixer>>, target: &str) -> Result<Stream> {

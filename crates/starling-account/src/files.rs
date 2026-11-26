@@ -191,7 +191,7 @@ mod retry_status_tests {
 
 #[cfg(test)]
 mod retrying_tests {
-    use super::{retrying, Failure};
+    use super::{Failure, retrying};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]

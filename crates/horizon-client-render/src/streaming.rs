@@ -4051,7 +4051,7 @@ mod cover_tests {
 
 #[cfg(test)]
 mod copper_mobile_tests {
-    use super::{copper_generation_capacity, COPPER_INFLIGHT};
+    use super::{COPPER_INFLIGHT, copper_generation_capacity};
 
     #[test]
     fn caps_generation_capacity_only_when_enabled() {

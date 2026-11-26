@@ -2199,10 +2199,14 @@ impl Game<'_> {
             return Ok(1);
         }
         let name;
-        if let Some(t) = self.res.mob_types().get(&kind).cloned() {
-            if self.ui.difficulty == 0 && t.category == "monster" {
-                return Err(err("commands.summon.failed.peaceful", &[]));
-            }
+        let mob_type = self.res.mob_types().get(&kind).cloned();
+        if self.ui.difficulty == 0 && mob_type.as_ref().is_some_and(|t| t.category == "monster") {
+            return Err(err("commands.summon.failed.peaceful", &[]));
+        }
+        // EnderDragon has its own state, entity parts, renderer and tick path.
+        // Never create it as an ordinary Mob even if a model/type entry exists:
+        // the generic fallback below loads it through Dragon::from_nbt.
+        if kind != "minecraft:ender_dragon" && mob_type.is_some() {
             self.spawn_mob_spawned(&short, pos)
                 .ok_or_else(|| err("commands.summon.failed.uuid", &[]))?;
             name = Text::translate(&entity_name_key(&kind), &[]);

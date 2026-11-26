@@ -863,6 +863,10 @@ impl Game<'_> {
             Some(Target::Cart(id))
         } else if self.others.iter().any(|o| o.id == id) {
             Some(Target::Other(id))
+        } else if self.dragon.as_ref().is_some_and(|d| d.id == id) {
+            // EnderDragon is kept in Game::dragon, not in the ordinary entity
+            // lists. Its first constructor id is still the summoned root.
+            Some(Target::Dragon(id))
         } else if self.tnts.iter().any(|t| t.id == id) {
             Some(Target::Tnt(id))
         } else if self.falling.iter().any(|f| f.id == id) {
