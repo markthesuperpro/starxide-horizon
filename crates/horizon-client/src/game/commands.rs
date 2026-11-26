@@ -2200,9 +2200,7 @@ impl Game<'_> {
         }
         let name;
         let mob_type = self.res.mob_types().get(&kind).cloned();
-        if self.ui.difficulty == 0
-            && mob_type.as_ref().is_some_and(|t| t.category == "monster")
-        {
+        if self.ui.difficulty == 0 && mob_type.as_ref().is_some_and(|t| t.category == "monster") {
             return Err(err("commands.summon.failed.peaceful", &[]));
         }
         // EnderDragon has its own state, entity parts, renderer and tick path.
